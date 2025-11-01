@@ -1,0 +1,299 @@
+/* LinkedIn Cringe Filter Styles - Optimized for Performance */
+
+/* Analyzing state - Improved for batch processing */
+.lcf-analyzing {
+  position: relative;
+}
+
+.lcf-analyzing::before {
+  content: '🧠 Analyzing...';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(10, 102, 194, 0.9);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  z-index: 1000;
+  animation: lcf-pulse 1.5s ease-in-out infinite;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.lcf-analyzing::after {
+  content: '';
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: lcf-spin 0.8s linear infinite;
+  z-index: 1001;
+}
+
+@keyframes lcf-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes lcf-pulse {
+  0%, 100% { opacity: 0.8; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+/* High priority analysis indicator */
+.lcf-analyzing.lcf-priority::before {
+  content: '⚡ Analyzing (Priority)...';
+  background: rgba(255, 152, 0, 0.9);
+  animation: lcf-priority-pulse 1s ease-in-out infinite;
+}
+
+@keyframes lcf-priority-pulse {
+  0%, 100% { opacity: 0.9; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); box-shadow: 0 0 8px rgba(255, 152, 0, 0.5); }
+}
+
+/* Viewport detection indicator (for debugging) */
+.lcf-in-viewport {
+  position: relative;
+}
+
+.lcf-in-viewport::after {
+  content: '👁️';
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: rgba(76, 175, 80, 0.8);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  z-index: 999;
+  opacity: 0.7;
+}
+
+/* Blurred post - Enhanced for better compatibility */
+.lcf-blurred {
+  position: relative !important;
+  overflow: hidden !important;
+  isolation: isolate; /* Create new stacking context */
+  transition: all 0.3s ease-in-out;
+}
+
+.lcf-blurred > *:not(.lcf-overlay) {
+  filter: blur(8px) !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  transition: filter 0.3s ease-in-out;
+}
+
+/* More specific targeting for LinkedIn content */
+.lcf-blurred .feed-shared-update-v2__description,
+.lcf-blurred .feed-shared-text,
+.lcf-blurred .update-components-text,
+.lcf-blurred .feed-shared-update-v2__commentary,
+.lcf-blurred .feed-shared-inline-show-more-text,
+.lcf-blurred img,
+.lcf-blurred video {
+  filter: blur(8px) !important;
+  pointer-events: none !important;
+  transition: filter 0.3s ease-in-out;
+}
+
+/* Overlay - Enhanced positioning and visibility */
+.lcf-overlay {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 999999 !important; /* Very high z-index to ensure visibility */
+  backdrop-filter: blur(2px) !important;
+  -webkit-backdrop-filter: blur(2px) !important;
+  min-height: 200px; /* Ensure minimum height for visibility */
+  animation: lcf-overlay-appear 0.3s ease-out;
+}
+
+@keyframes lcf-overlay-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.lcf-message {
+  text-align: center;
+  padding: 20px;
+  max-width: 400px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  animation: lcf-message-slide 0.4s ease-out 0.1s both;
+}
+
+@keyframes lcf-message-slide {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.lcf-title {
+  font-size: 18px !important;
+  font-weight: 600 !important;
+  color: #d32f2f !important;
+  margin: 0 0 8px 0 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+}
+
+.lcf-reason {
+  font-size: 14px !important;
+  color: #666 !important;
+  margin: 0 0 16px 0 !important;
+  line-height: 1.4 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+}
+
+.lcf-show-btn {
+  background: #0a66c2 !important;
+  color: white !important;
+  border: none !important;
+  padding: 8px 20px !important;
+  border-radius: 16px !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+}
+
+.lcf-show-btn:hover {
+  background: #084d93 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+}
+
+.lcf-show-btn:active {
+  transform: translateY(0) !important;
+}
+
+/* Queue status indicator (for debugging) */
+.lcf-queue-status {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: monospace;
+  z-index: 999999;
+  pointer-events: none;
+  opacity: 0.8;
+  transition: all 0.3s ease;
+}
+
+.lcf-queue-status.hidden {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+
+/* Performance mode indicators */
+.lcf-performance-mode {
+  position: relative;
+}
+
+.lcf-performance-mode::before {
+  content: '⚡ Fast Mode';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(76, 175, 80, 0.9);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 500;
+  z-index: 1000;
+  animation: lcf-performance-indicator 2s ease-in-out;
+}
+
+@keyframes lcf-performance-indicator {
+  0% { opacity: 0; transform: scale(0.8); }
+  20% { opacity: 1; transform: scale(1.1); }
+  80% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.9); }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .lcf-overlay {
+    background: rgba(0, 0, 0, 0.95) !important;
+  }
+  
+  .lcf-message {
+    background: rgba(30, 30, 30, 0.95) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  }
+  
+  .lcf-reason {
+    color: #ccc !important;
+  }
+  
+  .lcf-analyzing::before {
+    background: rgba(10, 102, 194, 0.9);
+  }
+  
+  .lcf-analyzing.lcf-priority::before {
+    background: rgba(255, 152, 0, 0.9);
+  }
+}
+
+/* Ensure overlay is visible on LinkedIn's specific containers */
+.feed-shared-update-v2.lcf-blurred .lcf-overlay,
+[data-urn].lcf-blurred .lcf-overlay,
+article.lcf-blurred .lcf-overlay {
+  display: flex !important;
+  position: absolute !important;
+  z-index: 999999 !important;
+}
+
+/* Responsive optimizations for mobile */
+@media (max-width: 768px) {
+  .lcf-message {
+    max-width: 90vw;
+    padding: 16px;
+  }
+  
+  .lcf-analyzing::before {
+    font-size: 10px;
+    padding: 3px 6px;
+  }
+  
+  .lcf-queue-status {
+    font-size: 11px;
+    padding: 6px 10px;
+  }
+}

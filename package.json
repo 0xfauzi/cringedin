@@ -1,0 +1,22 @@
+{
+  "name": "cringein",
+  "version": "1.0.0",
+  "description": "Automatically detect and blur cringe LinkedIn posts using GPT-4.1",
+  "author": "0xfauzi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/linkedin-cringe-filter.git"
+  },
+  "keywords": [
+    "linkedin",
+    "chrome-extension",
+    "gpt-4.1",
+    "ai",
+    "content-filter"
+  ],
+  "scripts": {
+    "build": "echo 'No build step required'",
+    "zip": "zip -r linkedin-cringe-filter.zip . -x '*.git*' -x 'node_modules/*' -x '*.DS_Store' -x 'package*.json' -x '*.env'"
+  }
+}

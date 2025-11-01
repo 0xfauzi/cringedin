@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CringeIn</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <!-- Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <div class="popup-container">
+    <header>
+      <!-- Main View Header -->
+      <div id="mainHeader" class="header-content">
+        <div class="header-left">
+          <h1>CringeIn</h1>
+          <button id="openConfigBtn" class="customize-btn">Customize</button>
+        </div>
+        <div class="toggle-container">
+          <label class="toggle">
+            <input type="checkbox" id="enableToggle" checked>
+            <span class="slider"></span>
+          </label>
+          <span class="toggle-label">Enabled</span>
+        </div>
+      </div>
+      
+      <!-- Config View Header -->
+      <div id="configHeader" class="header-content hidden">
+        <div class="config-header-left">
+          <button id="backBtn" class="back-btn">← Back</button>
+          <h1>Customize Cringe Detection</h1>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main View -->
+    <main id="mainView">
+      <section class="api-section" id="apiSection">
+        <h2>OpenAI API Key</h2>
+        <p class="help-text">Enter your GPT-4.1 API key to enable cringe detection</p>
+        <div class="api-input-container">
+          <input type="password" id="apiKeyInput" placeholder="sk-...">
+          <button id="saveApiKey">Save</button>
+        </div>
+        <p class="api-note">Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI</a></p>
+      </section>
+
+      <section class="threshold-section">
+        <h2>Cringe Detection</h2>
+        <div class="slider-container">
+          <input type="range" id="thresholdSlider" min="0" max="100" value="30" step="5">
+          <div class="slider-labels">
+            <span>Less</span>
+            <span class="threshold-value">Balanced</span>
+            <span>More</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="stats-section">
+        <h2>Statistics</h2>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-value" id="analyzedCount">0</span>
+            <span class="stat-label">Posts Analyzed</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value" id="cringeCount">0</span>
+            <span class="stat-label">Cringe Detected</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value" id="cringeRate">0%</span>
+            <span class="stat-label">Cringe Rate</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="actions-section">
+        <button id="clearCache" class="secondary-btn">Clear Cache</button>
+        <button id="resetStats" class="secondary-btn">Reset Statistics</button>
+        <button id="rescan" class="primary-btn">Rescan Feed</button>
+      </section>
+    </main>
+
+    <!-- Configuration View -->
+    <main id="configView" class="hidden">
+      <section class="config-actions-top">
+        <button id="selectAllCringe" class="action-btn">Select All</button>
+        <button id="deselectAllCringe" class="action-btn">Deselect All</button>
+        <button id="resetDefaultCringe" class="action-btn">Reset to Default</button>
+      </section>
+
+      <section class="cringe-config-section">
+        <div class="cringe-categories">
+          <div class="category-group">
+            <h3>Engagement Tactics</h3>
+            <label class="checkbox-item">
+              <input type="checkbox" id="humbleBragging" checked>
+              <span>Humble bragging ("I'm humbled to announce...")</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="engagementBait" checked>
+              <span>Engagement bait ("Agree? Thoughts?")</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="excessiveEmojis" checked>
+              <span>Excessive emojis (3+ in short posts)</span>
+            </label>
+          </div>
+          
+          <div class="category-group">
+            <h3>Content Types</h3>
+            <label class="checkbox-item">
+              <input type="checkbox" id="fakeStories" checked>
+              <span>Fake inspirational stories</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="hiringStories" checked>
+              <span>"I hired/rejected someone..." stories</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="companyCulture" checked>
+              <span>Over-the-top company culture posts</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="personalAnecdotes" checked>
+              <span>Unnecessary personal anecdotes for business points</span>
+            </label>
+          </div>
+          
+          <div class="category-group">
+            <h3>Language & Style</h3>
+            <label class="checkbox-item">
+              <input type="checkbox" id="buzzwordOveruse" checked>
+              <span>Buzzword overuse without substance</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="linkedinCliches" checked>
+              <span>LinkedIn clichés ("Can we normalize...", "Let that sink in")</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="virtueSignaling" checked>
+              <span>Virtue signaling without substance</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="professionalOversharing" checked>
+              <span>Professional oversharing</span>
+            </label>
+          </div>
+          
+          <div class="category-group">
+            <h3>Behavioral Patterns</h3>
+            <label class="checkbox-item">
+              <input type="checkbox" id="basicDecencyPraising" checked>
+              <span>Celebrating basic human decency as exceptional</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="minorAchievements" checked>
+              <span>Multi-paragraph posts about minor achievements</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="mundaneLifeLessons" checked>
+              <span>Turning every life event into a business lesson</span>
+            </label>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Made with 🙄 for LinkedIn</p>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
