@@ -48,6 +48,22 @@
         <p class="api-note">Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI</a></p>
       </section>
 
+      <section class="inference-section">
+        <h2>Inference Mode</h2>
+        <p class="help-text">Use GPT-4.1 (teacher) or run the distilled student model locally once installed.</p>
+        <div class="inference-options">
+          <label class="radio-item">
+            <input type="radio" name="inferenceMode" value="teacher" id="modeTeacher">
+            <span>Cloud (GPT-4.1)</span>
+          </label>
+          <label class="radio-item">
+            <input type="radio" name="inferenceMode" value="student" id="modeStudent">
+            <span>Local student (ONNX)</span>
+          </label>
+        </div>
+        <p id="inferenceStatus" class="help-text inference-status"></p>
+      </section>
+
       <section class="threshold-section">
         <h2>Cringe Detection</h2>
         <div class="slider-container">

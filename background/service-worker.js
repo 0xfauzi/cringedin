@@ -2,7 +2,63 @@ console.log('🚨 LINKEDIN CRINGE FILTER: Service worker loaded!');
 // Service worker for handling API requests with priority queue and efficient caching
 let apiKey = '';
 let cringeConfig = null;
-const API_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
+let inferenceMode = INFERENCE_MODES.TEACHER;
+let studentReady = false;
+let lastStudentError = null;
+const API_ENDPOINT = 'https://api.openai.com/v1/responses';
+const LABEL_KEYS = [
+  'humbleBragging',
+  'excessiveEmojis',
+  'engagementBait',
+  'fakeStories',
+  'companyCulture',
+  'personalAnecdotes',
+  'hiringStories',
+  'basicDecencyPraising',
+  'minorAchievements',
+  'buzzwordOveruse',
+  'linkedinCliches',
+  'virtueSignaling',
+  'professionalOversharing',
+  'mundaneLifeLessons',
+  'overall_cringe'
+];
+const SAMPLE_SCHEMA_VERSION = 'multilabel_v2';
+const SAMPLE_STORAGE_KEY = 'teacherSamples';
+const SAMPLE_STORAGE_LIMIT = 500;
+const OPENAI_SEED = 42;
+const OPENAI_MODEL = 'gpt-4.1';
+const INFERENCE_MODES = {
+  TEACHER: 'teacher',
+  STUDENT: 'student'
+};
+const RESPONSE_SCHEMA = {
+  name: 'CringeTeacher_Multilabel_v2',
+  strict: true,
+  schema: {
+    type: 'object',
+    required: ['cringe_prob', 'labels'],
+    additionalProperties: false,
+    properties: {
+      cringe_prob: { type: 'number', minimum: 0, maximum: 1 },
+      labels: {
+        type: 'object',
+        required: LABEL_KEYS,
+        additionalProperties: false,
+        properties: LABEL_KEYS.reduce((acc, key) => {
+          acc[key] = { type: 'number', minimum: 0, maximum: 1 };
+          return acc;
+        }, {})
+      },
+      top_reasons: {
+        type: 'array',
+        items: { type: 'string' },
+        minItems: 0,
+        maxItems: 3
+      }
+    }
+  }
+};
 const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
 const MAX_CACHE_SIZE = 1000; // Maximum cached results
 
@@ -41,6 +97,11 @@ const requestQueue = new PriorityQueue();
 
 // Listen for messages from content script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request && request.target === 'offscreen') {
+    // Message intended for the offscreen document; ignore in the service worker.
+    return false;
+  }
+
   if (request.type === 'SET_API_KEY') {
     apiKey = request.apiKey;
     chrome.storage.local.set({ apiKey });
@@ -102,11 +163,33 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ success: true });
     return true;
   }
+
+  if (request.type === 'SET_INFERENCE_MODE') {
+    const mode = request.mode;
+    if (!Object.values(INFERENCE_MODES).includes(mode)) {
+      sendResponse({ success: false, error: 'Invalid inference mode.' });
+      return true;
+    }
+    inferenceMode = mode;
+    studentReady = false; // Force reload on next use.
+    chrome.storage.local.set({ inferenceMode: mode });
+    sendResponse({ success: true, mode });
+    return true;
+  }
+
+  if (request.type === 'GET_INFERENCE_STATE') {
+    sendResponse({
+      inferenceMode,
+      studentReady,
+      lastStudentError
+    });
+    return true;
+  }
 });
 
 // Initialize API key, cringe config, and threshold from storage
 let cringeThreshold = 0.7; // Default threshold
-chrome.storage.local.get(['apiKey', 'cringeConfig', 'threshold'], (result) => {
+chrome.storage.local.get(['apiKey', 'cringeConfig', 'threshold', 'inferenceMode'], (result) => {
   if (result.apiKey) {
     apiKey = result.apiKey;
   }
@@ -116,106 +199,72 @@ chrome.storage.local.get(['apiKey', 'cringeConfig', 'threshold'], (result) => {
   if (result.threshold !== undefined) {
     cringeThreshold = result.threshold;
   }
+  if (result.inferenceMode && Object.values(INFERENCE_MODES).includes(result.inferenceMode)) {
+    inferenceMode = result.inferenceMode;
+  }
 });
 
-// Generate dynamic cringe detection prompt based on user configuration
-function generateCringePrompt() {
-  const cringeIndicators = [];
-  
-  // Map checkbox IDs to cringe indicators
-  const indicatorMap = {
-    humbleBragging: 'Humble bragging ("I\'m humbled to announce...")',
-    excessiveEmojis: 'Excessive emojis (>3-4 in short posts)',
-    engagementBait: 'Engagement bait ("Agree? Thoughts?")',
-    fakeStories: 'Fake inspirational stories',
-    companyCulture: 'Over-the-top company culture posts',
-    personalAnecdotes: 'Unnecessary personal anecdotes for business points',
-    hiringStories: '"I hired/rejected someone because..." stories',
-    basicDecencyPraising: 'Celebrating basic human decency as exceptional',
-    minorAchievements: 'Multi-paragraph posts about minor achievements',
-    buzzwordOveruse: 'Buzzword overuse without substance',
-    linkedinCliches: '"Can we normalize...", "Let that sink in", and other LinkedIn clichés',
-    virtueSignaling: 'Virtue signaling without substance',
-    professionalOversharing: 'Professional oversharing',
-    mundaneLifeLessons: '"Here\'s what I learned" from mundane experiences and turning every life event into a business lesson'
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.inferenceMode) {
+    const mode = changes.inferenceMode.newValue;
+    if (Object.values(INFERENCE_MODES).includes(mode)) {
+      inferenceMode = mode;
+      console.log('🚨 LINKEDIN CRINGE FILTER: Inference mode updated to', inferenceMode);
+    }
+  }
+});
+
+// Generate dynamic multi-label prompt based on user configuration
+function generateCringePrompt(enabledKeys = LABEL_KEYS) {
+  const indicatorDescriptions = {
+    humbleBragging: 'Humble bragging ("I\'m humbled to announce...", excessive self-congratulation)',
+    excessiveEmojis: 'Overuse of emojis relative to text length or tone',
+    engagementBait: 'Engagement bait (asking for likes/comments or using cliffhangers to farm engagement)',
+    fakeStories: 'Dubious inspirational stories that feel fabricated or exaggerated',
+    companyCulture: 'Over-the-top corporate culture praise with little substance',
+    personalAnecdotes: 'Unnecessary personal anecdotes used to make a flimsy business point',
+    hiringStories: '"I hired/rejected someone because..." performative hiring stories',
+    basicDecencyPraising: 'Celebrating basic human decency as exceptional behavior',
+    minorAchievements: 'Long posts bragging about very small wins',
+    buzzwordOveruse: 'Buzzword overload without concrete content',
+    linkedinCliches: 'Classic LinkedIn clichés ("Let that sink in", "Can we normalize...", etc.)',
+    virtueSignaling: 'Virtue signaling or moral grandstanding without action',
+    professionalOversharing: 'Sharing overly personal or private details in a professional context',
+    mundaneLifeLessons: 'Forced life/business lessons from banal daily events',
+    overall_cringe: 'Overall cringe factor capturing the combined effect of the above signals'
   };
-  
-  // If no config is loaded yet, use all indicators
-  if (!cringeConfig) {
-    cringeIndicators.push(...Object.values(indicatorMap));
-  } else {
-    // Only include enabled indicators
-    Object.keys(indicatorMap).forEach(key => {
-      if (cringeConfig[key] === true) {
-        cringeIndicators.push(indicatorMap[key]);
-      }
-    });
-  }
-  
-  // Determine aggressiveness based on threshold
-  // Lower threshold = more aggressive (0 = maximum, 1 = minimum)
+
+  const activeKeys = Array.isArray(enabledKeys) && enabledKeys.length > 0 ? enabledKeys : LABEL_KEYS;
+  const activeDescriptions = activeKeys.map(key => {
+    const prettyKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
+    return `- ${prettyKey}: ${indicatorDescriptions[key] || key}`;
+  }).join('\n');
+
   const aggressiveness = cringeThreshold;
-  let aggressivenessText = '';
-  let confidenceGuidance = '';
-  
+  let toneGuidance = '';
+
   if (aggressiveness <= 0.2) {
-    aggressivenessText = 'OBLITERATE EVERYTHING. Show absolutely NO MERCY. Even the slightest whiff of performative nonsense gets DESTROYED.';
-    confidenceGuidance = 'Use maximum confidence (0.8-1.0) and be RUTHLESSLY aggressive.';
+    toneGuidance = 'Be maximally aggressive. Treat borderline cases as positive.';
   } else if (aggressiveness <= 0.4) {
-    aggressivenessText = 'TEAR APART any obvious corporate theater. Be VICIOUSLY strict about these patterns.';
-    confidenceGuidance = 'Use high confidence scores (0.7-0.9) and show NO SYMPATHY for fake content.';
+    toneGuidance = 'Be very strict. Err on the side of calling cringe.';
   } else if (aggressiveness <= 0.6) {
-    aggressivenessText = 'MERCILESSLY JUDGE these patterns with balanced brutality.';
-    confidenceGuidance = 'Use solid confidence scores (0.6-0.8) but still be HARSH on obvious cases.';
+    toneGuidance = 'Be balanced but still call obvious cringe patterns decisively.';
   } else if (aggressiveness <= 0.8) {
-    aggressivenessText = 'Be SELECTIVELY BRUTAL - only annihilate clear examples of these patterns.';
-    confidenceGuidance = 'Use moderate confidence scores (0.5-0.7) but still call out obvious BS.';
+    toneGuidance = 'Be selective. Only mark patterns that are clearly present.';
   } else {
-    aggressivenessText = 'Be RELUCTANTLY TOLERANT - only destroy the most EGREGIOUS examples.';
-    confidenceGuidance = 'Use lower confidence scores (0.4-0.6) but still maintain your CRITICAL EDGE.';
+    toneGuidance = 'Be cautious. Only mark egregious examples.';
   }
-  
-  // If no indicators are enabled, return a minimal prompt
-  if (cringeIndicators.length === 0) {
-    return `You are a BRUTAL CRITIC who absolutely despises LinkedIn's toxic culture of fake positivity and fake nonsense. You have ZERO tolerance for corporate acting. Since no specific cringe indicators are enabled, ${aggressivenessText.toLowerCase()} 
 
-CRITICAL: Respond with VALID JSON only. No other text. Ensure all strings are properly quoted and escaped.
+  return `You are a calibrated LinkedIn content rater. Score the post for overall cringe and for each specific cringe pattern.
 
-# Response Format (JSON only):
-{
-  "isCringe": boolean,
-  "confidence": number (0-1),
-  "reason": "brief explanation without quotes or newlines"
-}
+Return probabilities in [0,1] where 0 = not present and 1 = overwhelming evidence. You can set medium values when unsure.
 
-Example: {"isCringe": false, "confidence": 0.2, "reason": "Shockingly contains actual substance instead of corporate garbage"}
+Active indicators to pay attention to:
+${activeDescriptions}
 
-${aggressivenessText} ${confidenceGuidance} Show ABSOLUTELY NO MERCY for empty content pretending to be deep. DESTROY the fake inspirational nonsense.`;
-  }
-  
-  // Generate the full prompt with selected indicators
-  const indicatorList = cringeIndicators.map(indicator => `- ${indicator}`).join('\n');
-  
-  return `You are a SAVAGE LINKEDIN CRITIC who has endured YEARS of insufferable corporate virtue signaling, fake inspirational stories, and shameless self-promotion. You are SICK AND TIRED of the platform's toxic positivity culture. You call out BS with the fury of a thousand suns and have absolutely ZERO patience for fake nonsense.
+${toneGuidance}
 
-CRITICAL: Respond with VALID JSON only. No other text. Ensure all strings are properly quoted and escaped.
-
-# Your Mission - Call Out These Cringe Patterns:
-${indicatorList}
-
-# Your Brutal Analysis Style:
-${aggressivenessText} ${confidenceGuidance} You are a TOUGH JUDGE of what's real. Call out fake vulnerability, fake inspiration, and corporate acting exactly.
-
-# Response Format (JSON only):
-{
-  "isCringe": boolean,
-  "confidence": number (0-1),
-  "reason": "brief explanation without quotes or newlines"
-}
-
-Example: {"isCringe": true, "confidence": 0.95, "reason": "Disgusting fake vulnerability acting designed to get likes"}
-
-Only spare posts that provide REAL value without fake acting. Everything else gets CALLED OUT without mercy.`;
+Answer strictly with JSON that matches the provided schema. Provide up to 3 short reasons that justify the strongest signals.`;
 }
 
 // Helper function to fix common JSON formatting issues
@@ -263,8 +312,91 @@ function fixJsonString(jsonStr) {
   return fixed;
 }
 
+async function hashPrompt(promptText) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(promptText);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function clampProbability(value) {
+  if (Number.isFinite(value)) {
+    return Math.min(1, Math.max(0, value));
+  }
+  return 0;
+}
+
+function ensureLabelMap(rawLabels = {}) {
+  const labels = {};
+  LABEL_KEYS.forEach(key => {
+    labels[key] = clampProbability(typeof rawLabels[key] === 'number' ? rawLabels[key] : 0);
+  });
+  return labels;
+}
+
+function sanitizeReasons(reasons) {
+  if (!Array.isArray(reasons)) {
+    return [];
+  }
+  return reasons
+    .map(reason => String(reason || '').trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+function buildLegacyResult(teacher, threshold) {
+  const topReasons = teacher.top_reasons;
+  const primaryReason = topReasons[0] || 'Cringe indicators detected.';
+  const confidence = clampProbability(teacher.cringe_prob);
+  const isCringe = confidence >= threshold;
+  return {
+    isCringe,
+    confidence,
+    reason: primaryReason
+  };
+}
+
+function estimateTokenLength(text) {
+  if (!text) return 0;
+  const tokens = text.trim().split(/\s+/);
+  return tokens.filter(Boolean).length;
+}
+
+async function persistTeacherSample(sample) {
+  return new Promise(resolve => {
+    chrome.storage.local.get([SAMPLE_STORAGE_KEY], (result) => {
+      const existing = Array.isArray(result[SAMPLE_STORAGE_KEY]) ? result[SAMPLE_STORAGE_KEY] : [];
+      const dedupeKey = `${sample.post.post_id}::${sample.context.prompt_hash}`;
+
+      const filtered = existing.filter(item => item.context?.dedupe_key !== dedupeKey);
+      filtered.push({
+        ...sample,
+        context: {
+          ...sample.context,
+          dedupe_key: dedupeKey
+        }
+      });
+
+      // Trim to storage limit (keep most recent)
+      const trimmed = filtered.slice(-SAMPLE_STORAGE_LIMIT);
+      chrome.storage.local.set({ [SAMPLE_STORAGE_KEY]: trimmed }, () => resolve());
+    });
+  });
+}
+
 async function analyzePost(postData) {
-  const { postId, text, hasImage } = postData;
+  const {
+    postId,
+    text,
+    hasImage,
+    charLen,
+    tokenLen,
+    lang,
+    scrapedAt,
+    enabledIndicators = LABEL_KEYS
+  } = postData;
   console.log('🚨 LINKEDIN CRINGE FILTER: Analyzing post:', postId);
 
   if (!apiKey) {
@@ -280,14 +412,38 @@ async function analyzePost(postData) {
     return cached;
   }
 
-  // Generate dynamic system prompt based on user's cringe configuration
-  const systemPrompt = generateCringePrompt();
+  if (inferenceMode === INFERENCE_MODES.STUDENT) {
+    const studentResult = await analyzeWithStudent(postData);
+    if (studentResult) {
+      cacheResult(postId, studentResult);
+      updateStats(studentResult.isCringe, false);
+      return studentResult;
+    }
+    console.warn('🚨 LINKEDIN CRINGE FILTER: Student model unavailable, falling back to teacher API.');
+  }
 
-  const userPrompt = `Analyze this LinkedIn post:
+  // Generate dynamic system prompt based on user's cringe configuration
+  const systemPrompt = generateCringePrompt(enabledIndicators);
+  const promptHash = await hashPrompt(systemPrompt);
+  const metadataCharLen = typeof charLen === 'number' ? charLen : text.length;
+  const metadataTokenLen = typeof tokenLen === 'number' ? tokenLen : estimateTokenLength(text);
+  const language = lang || 'unknown';
+  const timestamp = scrapedAt || new Date().toISOString();
+
+  const userPrompt = `POST (trimmed to 3000 chars):
 
 "${text}"
 
-${hasImage ? 'Note: This post includes an image.' : ''}`;
+Context:
+- Has image/media: ${hasImage ? 'yes' : 'no'}
+- Approx char length: ${metadataCharLen}
+- Approx token length: ${metadataTokenLen}
+- Language guess: ${language}
+
+Task:
+1. Return "cringe_prob" for overall cringe.
+2. Return probabilities for each label key in the schema.
+3. Provide up to three concise reasons referencing the content and label names.`;
 
   try {
     console.log(`🚨 LINKEDIN CRINGE FILTER: Making API call for post ${postId}`);
@@ -298,14 +454,15 @@ ${hasImage ? 'Note: This post includes an image.' : ''}`;
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4.1',
-        messages: [
+        model: OPENAI_MODEL,
+        seed: OPENAI_SEED,
+        temperature: 0.2,
+        max_output_tokens: 200,
+        response_format: { type: 'json_schema', json_schema: RESPONSE_SCHEMA },
+        input: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.2,
-        max_tokens: 100,
-        response_format: { type: 'json_object' }
+        ]
       })
     });
 
@@ -315,36 +472,32 @@ ${hasImage ? 'Note: This post includes an image.' : ''}`;
     }
 
     const data = await response.json();
-    const rawContent = data.choices[0].message.content;
+    const rawContent = data.output_text ||
+      data.output?.map(block => block.content?.map(item => item.text).join('\n')).join('\n') ||
+      '';
     
     console.log(`🚨 LINKEDIN CRINGE FILTER: Raw AI response for post ${postId}:`, rawContent);
     
-    let result;
+    let teacherPayload;
     try {
-      result = JSON.parse(rawContent);
-    } catch (jsonError) {
-      console.error(`🚨 LINKEDIN CRINGE FILTER: JSON parsing error for post ${postId}:`, jsonError);
-      console.error(`🚨 LINKEDIN CRINGE FILTER: Problematic content:`, rawContent);
-      
-      // Try to fix common JSON issues
+      teacherPayload = JSON.parse(rawContent);
+    } catch (parseError) {
+      console.error(`🚨 LINKEDIN CRINGE FILTER: JSON parsing error for post ${postId}:`, parseError);
       const fixedContent = fixJsonString(rawContent);
       try {
-        result = JSON.parse(fixedContent);
-        console.log(`🚨 LINKEDIN CRINGE FILTER: Successfully parsed fixed JSON for post ${postId}:`, result);
+        teacherPayload = JSON.parse(fixedContent);
       } catch (fixError) {
         console.error(`🚨 LINKEDIN CRINGE FILTER: Could not fix JSON for post ${postId}:`, fixError);
-        // Return a fallback result
         return {
           isCringe: false,
           confidence: 0.1,
-          reason: `Analysis failed due to malformed AI response: ${jsonError.message}`
+          reason: `Analysis failed due to malformed AI response: ${parseError.message}`
         };
       }
     }
     
-    // Validate the result structure
-    if (!result || typeof result.isCringe !== 'boolean' || typeof result.confidence !== 'number') {
-      console.error(`🚨 LINKEDIN CRINGE FILTER: Invalid result structure for post ${postId}:`, result);
+    if (!teacherPayload || typeof teacherPayload.cringe_prob !== 'number' || typeof teacherPayload.labels !== 'object') {
+      console.error(`🚨 LINKEDIN CRINGE FILTER: Invalid teacher payload for post ${postId}:`, teacherPayload);
       return {
         isCringe: false,
         confidence: 0.1,
@@ -352,13 +505,54 @@ ${hasImage ? 'Note: This post includes an image.' : ''}`;
       };
     }
     
-    console.log(`🚨 LINKEDIN CRINGE FILTER: Analysis complete for post ${postId}:`, result);
+    const labels = ensureLabelMap(teacherPayload.labels);
+    const topReasons = sanitizeReasons(teacherPayload.top_reasons);
+    const teacher = {
+      model: OPENAI_MODEL,
+      temperature: 0.2,
+      seed: OPENAI_SEED,
+      schema_version: SAMPLE_SCHEMA_VERSION,
+      labels,
+      cringe_prob: clampProbability(teacherPayload.cringe_prob),
+      top_reasons: topReasons
+    };
+
+    const legacyResult = buildLegacyResult({ cringe_prob: teacher.cringe_prob, top_reasons: topReasons }, cringeThreshold);
+    console.log(`🚨 LINKEDIN CRINGE FILTER: Analysis complete for post ${postId}:`, {
+      ...legacyResult,
+      labels
+    });
     
     const finalResult = {
-      isCringe: result.isCringe,
-      confidence: Math.max(0, Math.min(1, result.confidence)), // Clamp between 0-1
-      reason: result.reason || 'No reason provided'
+      ...legacyResult,
+      cringeProb: teacher.cringe_prob,
+      labels,
+      topReasons,
+      promptHash,
+      schemaVersion: SAMPLE_SCHEMA_VERSION,
+      origin: 'teacher'
     };
+
+    const sample = {
+      schema_version: SAMPLE_SCHEMA_VERSION,
+      post: {
+        post_id: postId,
+        text,
+        char_len: metadataCharLen,
+        token_len: metadataTokenLen,
+        lang: language,
+        has_image: !!hasImage
+      },
+      teacher,
+      context: {
+        aggressiveness: cringeThreshold,
+        indicators_enabled: enabledIndicators,
+        prompt_hash: promptHash,
+        ts: timestamp
+      }
+    };
+
+    await persistTeacherSample(sample);
 
     // Cache successful results
     cacheResult(postId, finalResult);
@@ -396,6 +590,111 @@ function cacheResult(postId, result) {
       // Check cache size periodically
       checkCacheSize();
     });
+  }
+}
+
+let creatingOffscreenDocument = null;
+
+async function ensureOffscreenDocument() {
+  if (!chrome.offscreen || !chrome.offscreen.createDocument) {
+    return;
+  }
+
+  if (chrome.offscreen.hasDocument) {
+    const hasDocument = await chrome.offscreen.hasDocument();
+    if (hasDocument) {
+      return;
+    }
+  }
+
+  if (!creatingOffscreenDocument) {
+    creatingOffscreenDocument = chrome.offscreen.createDocument({
+      url: chrome.runtime.getURL('offscreen/offscreen.html'),
+      reasons: ['DOM_PARSER'],
+      justification: 'Run the local student model with WebGPU.'
+    }).catch((error) => {
+      console.warn('🚨 LINKEDIN CRINGE FILTER: Failed to create offscreen document', error);
+    }).finally(() => {
+      creatingOffscreenDocument = null;
+    });
+  }
+
+  await creatingOffscreenDocument;
+}
+
+function sendOffscreenMessage(message) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ target: 'offscreen', ...message }, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+async function ensureStudentModel() {
+  await ensureOffscreenDocument();
+  try {
+    const result = await sendOffscreenMessage({ action: 'STUDENT_LOAD' });
+    if (result?.ready) {
+      studentReady = true;
+      lastStudentError = null;
+      return true;
+    }
+    studentReady = false;
+    lastStudentError = result?.error || 'Unknown load error.';
+    return false;
+  } catch (error) {
+    studentReady = false;
+    lastStudentError = error.message;
+    return false;
+  }
+}
+
+async function analyzeWithStudent(postData) {
+  if (!(await ensureStudentModel())) {
+    return null;
+  }
+
+  try {
+    const response = await sendOffscreenMessage({
+      action: 'STUDENT_INFER',
+      payload: {
+        text: postData.text,
+        lang: postData.lang,
+        tokenLen: postData.tokenLen,
+        hasImage: postData.hasImage
+      }
+    });
+
+    if (!response || !response.success) {
+      lastStudentError = response?.error || 'Unknown student inference error.';
+      studentReady = false;
+      return null;
+    }
+
+    const labels = ensureLabelMap(response.labels || {});
+    const topReasons = Array.isArray(response.topReasons) ? response.topReasons : [];
+    const cringeProb = clampProbability(response.cringeProb ?? labels.overall_cringe ?? 0);
+    const legacy = buildLegacyResult({ cringe_prob: cringeProb, top_reasons: topReasons }, cringeThreshold);
+
+    return {
+      ...legacy,
+      cringeProb,
+      labels,
+      topReasons,
+      origin: 'student',
+      promptHash: null,
+      schemaVersion: SAMPLE_SCHEMA_VERSION,
+      runtimeMs: response.runtimeMs || null
+    };
+  } catch (error) {
+    studentReady = false;
+    lastStudentError = error.message;
+    console.warn('🚨 LINKEDIN CRINGE FILTER: Student inference failed:', error);
+    return null;
   }
 }
 

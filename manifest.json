@@ -5,7 +5,8 @@
   "description": "Automatically detect and blur cringe LinkedIn posts",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "offscreen"
   ],
   "host_permissions": [
     "https://*.linkedin.com/*",
@@ -14,11 +15,28 @@
   "background": {
     "service_worker": "background/service-worker.js"
   },
+  "offscreen": {
+    "page": "offscreen/offscreen.html",
+    "persist_across_sessions": false,
+    "reason": "DOM_PARSER",
+    "justification": "Run local student inference with WebGPU in an isolated document."
+  },
   "content_scripts": [
     {
       "matches": ["https://*.linkedin.com/*"],
       "css": ["content/styles.css"],
       "js": ["content/pre-filter.js", "content/viewport-manager.js", "content/content.js", "content/observer.js"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "offscreen/offscreen.html",
+        "offscreen/offscreen.js",
+        "lib/*",
+        "models/*"
+      ],
+      "matches": ["<all_urls>"]
     }
   ],
   "action": {

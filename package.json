@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/linkedin-cringe-filter.git"
+    "url": "https://github.com/0xfauzi/linkedin-cringe-filter.git"
   },
   "keywords": [
     "linkedin",
@@ -17,6 +17,7 @@
   ],
   "scripts": {
     "build": "echo 'No build step required'",
-    "zip": "zip -r linkedin-cringe-filter.zip . -x '*.git*' -x 'node_modules/*' -x '*.DS_Store' -x 'package*.json' -x '*.env'"
+    "zip": "zip -r linkedin-cringe-filter.zip . -x '*.git*' -x 'node_modules/*' -x '*.DS_Store' -x 'package*.json' -x '*.env'",
+    "dataset": "node tools/dataset-tool.js"
   }
 }

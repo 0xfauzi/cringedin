@@ -562,6 +562,57 @@ footer p {
   color: #666;
 }
 
+.inference-section {
+  background: white;
+  border-radius: 12px;
+  padding: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.inference-section h2 {
+  font-size: 16px;
+  margin-bottom: 6px;
+  color: #0f172a;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.inference-options {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.radio-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #1f2937;
+}
+
+.radio-item input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #0a66c2;
+}
+
+.inference-status {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.inference-status.ready {
+  color: #047857;
+}
+
+.inference-status.error {
+  color: #b91c1c;
+}
+
 /* Configuration View */
 #configView {
   display: flex;

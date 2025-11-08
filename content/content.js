@@ -3,8 +3,26 @@ console.log('🚨 LINKEDIN CRINGE FILTER: Content script loaded!', window.locati
 let isEnabled = true;
 let cringeThreshold = 0.7;
 let testMode = false;
+let currentCringeConfig = null;
 const processedPosts = new Set();
 const resultsCache = new Map(); // In-memory cache for instant lookups
+const LABEL_KEYS = [
+  'humbleBragging',
+  'excessiveEmojis',
+  'engagementBait',
+  'fakeStories',
+  'companyCulture',
+  'personalAnecdotes',
+  'hiringStories',
+  'basicDecencyPraising',
+  'minorAchievements',
+  'buzzwordOveruse',
+  'linkedinCliches',
+  'virtueSignaling',
+  'professionalOversharing',
+  'mundaneLifeLessons',
+  'overall_cringe'
+];
 
 // Make variables global for observer.js and viewport-manager.js
 window.isEnabled = isEnabled;
@@ -65,10 +83,11 @@ window.debugLinkedInFilter = () => {
 // Improved settings initialization - prevent race conditions
 function initializeSettings() {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['enabled', 'threshold'], (result) => {
+    chrome.storage.local.get(['enabled', 'threshold', 'cringeConfig'], (result) => {
       // Use consistent defaults
       isEnabled = result.enabled !== false;
       cringeThreshold = result.threshold !== undefined ? result.threshold : 0.7;
+      currentCringeConfig = result.cringeConfig || null;
       
       // Update global references
       window.isEnabled = isEnabled;
@@ -127,6 +146,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (window.cringePreFilter) {
       window.cringePreFilter.updateConfig(request.config);
     }
+    currentCringeConfig = request.config;
     // Clear cache and rescan since detection criteria changed
     processedPosts.clear();
     resultsCache.clear();
@@ -156,6 +176,10 @@ chrome.storage.onChanged.addListener((changes) => {
     console.log('🚨 LINKEDIN CRINGE FILTER: Threshold changed via storage to:', cringeThreshold);
     // Re-evaluate cached results with new threshold
     reEvaluateCachedResults();
+  }
+
+  if (changes.cringeConfig) {
+    currentCringeConfig = changes.cringeConfig.newValue;
   }
   
   // Only rescan once if multiple settings changed
@@ -313,6 +337,62 @@ function hasPostImage(element) {
   return false;
 }
 
+function expandPost(element) {
+  if (!element) return;
+  const candidates = element.querySelectorAll('button, a, [role="button"]');
+  candidates.forEach(node => {
+    if (node.dataset?.lcfExpanded === '1') {
+      return;
+    }
+    const text = (node.innerText || node.textContent || node.getAttribute('aria-label') || '').toLowerCase();
+    if (text.includes('see more') || text.includes('show more')) {
+      node.dataset.lcfExpanded = '1';
+      try {
+        node.click();
+      } catch (error) {
+        console.debug('🚨 LINKEDIN CRINGE FILTER: Failed to expand post button', error);
+      }
+    }
+  });
+}
+
+function normalizePostText(text) {
+  if (!text) return '';
+  return text
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function estimateTokenLength(text) {
+  if (!text) return 0;
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function detectLanguage(text) {
+  if (!text) return 'unknown';
+  const asciiChars = (text.match(/[A-Za-z0-9\s]/g) || []).length;
+  const ratio = asciiChars / text.length;
+  if (ratio > 0.85) {
+    return 'en';
+  }
+  const docLang = document.documentElement.lang || '';
+  const navLang = navigator.language || '';
+  const candidate = docLang || navLang;
+  return candidate ? candidate.split('-')[0] : 'unknown';
+}
+
+function getEnabledIndicatorKeys() {
+  if (!currentCringeConfig) {
+    return LABEL_KEYS;
+  }
+  const enabled = Object.keys(currentCringeConfig).filter(key => currentCringeConfig[key]);
+  if (!enabled.includes('overall_cringe')) {
+    enabled.push('overall_cringe');
+  }
+  return enabled.length > 0 ? enabled : LABEL_KEYS;
+}
+
 // Optimized analysis with caching
 async function analyzePost(element, postId, priority = false) {
   // Check in-memory cache first
@@ -324,20 +404,36 @@ async function analyzePost(element, postId, priority = false) {
     return cached;
   }
 
+  expandPost(element);
+  delete element._lcfTextCache;
+
   const text = getPostText(element);
-  
-  if (!text || text.length < 50) {
+  const normalizedText = normalizePostText(text);
+  if (!normalizedText || normalizedText.length < 50) {
     return null;
   }
+
+  const trimmedText = normalizedText.slice(0, 3000);
+  const charLen = trimmedText.length;
+  const tokenLen = estimateTokenLength(trimmedText);
+  const languageGuess = detectLanguage(trimmedText);
+  const enabledIndicators = getEnabledIndicatorKeys();
+  const scrapedAt = new Date().toISOString();
+  const hasImage = hasPostImage(element);
 
   try {
     const result = await chrome.runtime.sendMessage({
       type: 'ANALYZE_POST',
       data: {
         postId,
-        text: text.substring(0, 1000),
-        hasImage: hasPostImage(element),
-        priority
+        text: trimmedText,
+        hasImage,
+        priority,
+        charLen,
+        tokenLen,
+        lang: languageGuess,
+        scrapedAt,
+        enabledIndicators
       }
     });
 

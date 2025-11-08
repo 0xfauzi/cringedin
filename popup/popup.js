@@ -306,6 +306,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const analyzedCount = document.getElementById('analyzedCount');
   const cringeCount = document.getElementById('cringeCount');
   const cringeRate = document.getElementById('cringeRate');
+  const inferenceStatus = document.getElementById('inferenceStatus');
+  const inferenceModeRadios = document.querySelectorAll('input[name="inferenceMode"]');
   const clearCacheBtn = document.getElementById('clearCache');
   const resetStatsBtn = document.getElementById('resetStats');
   const rescanBtn = document.getElementById('rescan');
@@ -350,7 +352,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Simplified settings loading - fix race conditions
   function loadSettings() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(['enabled', 'apiKey', 'threshold', 'stats', 'cringeConfig'], (result) => {
+      chrome.storage.local.get(['enabled', 'apiKey', 'threshold', 'stats', 'cringeConfig', 'inferenceMode'], (result) => {
         console.log('Loading settings from storage:', result);
         
         // Enable toggle
@@ -378,6 +380,9 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Update stats
         updateStats(result.stats || { analyzed: 0, cringeDetected: 0 });
+
+        const inferenceMode = result.inferenceMode || 'teacher';
+        setInferenceModeUI(inferenceMode);
         
         resolve();
       });
@@ -387,6 +392,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize settings on load
   loadSettings().then(() => {
     console.log('Settings loaded successfully');
+    refreshInferenceStatus();
   });
 
   // Helper function to update threshold display
@@ -402,6 +408,91 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       thresholdValue.textContent = 'Maximum';
     }
+  }
+
+  function setInferenceModeUI(mode) {
+    if (!inferenceModeRadios) return;
+    inferenceModeRadios.forEach((radio) => {
+      radio.checked = radio.value === mode;
+    });
+  }
+
+  function refreshInferenceStatus() {
+    if (!inferenceStatus) return;
+
+    inferenceStatus.textContent = 'Checking inference backend...';
+    inferenceStatus.classList.remove('ready', 'error');
+
+    chrome.runtime.sendMessage({ type: 'GET_INFERENCE_STATE' }, (response) => {
+      if (chrome.runtime.lastError) {
+        inferenceStatus.textContent = 'Unable to reach background worker. Using teacher API.';
+        inferenceStatus.classList.add('error');
+        console.warn('GET_INFERENCE_STATE error:', chrome.runtime.lastError.message);
+        return;
+      }
+
+      if (!response) {
+        inferenceStatus.textContent = 'Using GPT-4.1 teacher API.';
+        return;
+      }
+
+      const mode = response.inferenceMode || 'teacher';
+      const ready = response.studentReady;
+      const errorMessage = response.lastStudentError;
+      setInferenceModeUI(mode);
+
+      if (mode === 'student') {
+        if (ready) {
+          inferenceStatus.textContent = 'Local student ready (WebGPU/WASM).';
+          inferenceStatus.classList.add('ready');
+          inferenceStatus.classList.remove('error');
+        } else {
+          inferenceStatus.textContent = errorMessage
+            ? `Waiting for student model assets: ${errorMessage}`
+            : 'Waiting for student model assets.';
+          inferenceStatus.classList.add('error');
+          inferenceStatus.classList.remove('ready');
+        }
+      } else {
+        inferenceStatus.textContent = 'Using GPT-4.1 teacher API.';
+        inferenceStatus.classList.remove('ready', 'error');
+      }
+    });
+  }
+
+  function sendInferenceModeUpdate(mode) {
+    chrome.runtime.sendMessage({ type: 'SET_INFERENCE_MODE', mode }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('Failed to set inference mode:', chrome.runtime.lastError.message);
+        toast.error('Mode Update Failed', chrome.runtime.lastError.message);
+        refreshInferenceStatus();
+        return;
+      }
+
+      if (!response?.success) {
+        const message = response?.error || 'Unknown error switching inference mode.';
+        toast.error('Mode Update Failed', message);
+        refreshInferenceStatus();
+        return;
+      }
+
+      const message =
+        mode === 'student'
+          ? 'Local student will be used when assets are ready.'
+          : 'Switched back to GPT-4.1 teacher.';
+      toast.info('Inference Mode Updated', message, 2500);
+      refreshInferenceStatus();
+    });
+  }
+
+  if (inferenceModeRadios) {
+    inferenceModeRadios.forEach((radio) => {
+      radio.addEventListener('change', () => {
+        if (radio.checked) {
+          sendInferenceModeUpdate(radio.value);
+        }
+      });
+    });
   }
 
   // Enable/disable toggle
